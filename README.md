@@ -1,6 +1,6 @@
-# ⚡️ The upcoming release is in-progress
+# ⚡️ A newer release is published
 
-Please stay tuned by following its changelog before its official release. Click [here](https://github.com/kataras/iris/blob/v11/HISTORY.md#whenever--v1100) to read more about the upcoming release, version 11.
+Click [here](https://github.com/kataras/iris/blob/master/HISTORY.md) to read more about the newest release.
 
 > And, for the craziest of us, click [here](https://github.com/kataras/iris/compare/v10.7.0...v11) 🔥 to find out the commits and the code changes since current v10 
 
@@ -22,11 +22,16 @@ Learn what [others say about Iris](#support) and [star](https://github.com/katar
 
 The only requirement is the [Go Programming Language](https://golang.org/dl/)
 
-```sh
-$ go get -u github.com/kataras/iris
-```
+### GOPATH users
 
-Iris takes advantage of the [vendor directory](https://docs.google.com/document/d/1Bz5-UB7g2uPBdOx-rw5t9MxJwkfpx90cqG9AFL0JAYo) feature. You get truly reproducible builds, as this method guards against upstream renames and deletes.
+1. Download https://github.com/kataras/iris/archive/v10.zip
+2. Unzip to your $GOPATH/src/github.com/kataras and
+3. rename the extracted "iris-10" folder to just "iris"
+4. If you wish, navigate to your "iris" folder and execute `$ go get ./...` to get the `kataras/golog` and the `httptest` dependencies that are not bundled within the Iris vendors because you may want to use them inside your own projects as well.
+
+### Modules users
+
+Just add an import line at the end of your `go.mod` file as: `github.com/kataras/iris v10.7.0`.
 
 [![Iris vs .NET Core(C#) vs Node.js (Express)](https://iris-go.com/images/benchmark-new-gray.png)](_benchmarks/README_UNIX.md)
 
