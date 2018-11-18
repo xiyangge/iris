@@ -158,10 +158,10 @@
   version = "v1.0.0"
 
 [[projects]]
-  name = "gopkg.in/russross/blackfriday.v2"
+  branch = "master"
+  name = "github.com/iris-contrib/blackfriday"
   packages = ["."]
-  revision = "cadec560ec52d93835bf2f15bd794700d3a2473b"
-  version = "v2.0.0"
+  revision = "48b3da6a6f3865c7eb1eba96d74cf0a16f63faca"
 
 [[projects]]
   branch = "master"
