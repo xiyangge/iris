@@ -7,7 +7,7 @@ go:
 go_import_path: github.com/kataras/iris
 env:
  global:
-   - GO111MODULE=on
+   - GO111MODULE=off
 install:
   - go get ./...
 script:
