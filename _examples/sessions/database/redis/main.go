@@ -12,7 +12,8 @@ import (
 // tested with redis version 3.0.503.
 // for windows see: https://github.com/ServiceStack/redis-windows
 func main() {
-	// replace with your running redis' server settings:
+	// These are the default values,
+	// you can replace them based on your running redis' server settings:
 	db := redis.New(redis.Config{
 		Network:   "tcp",
 		Addr:      "127.0.0.1:6379",
@@ -22,9 +23,17 @@ func main() {
 		Database:  "",
 		Prefix:    "",
 		Delim:     "-",
-	}) // optionally configure the bridge between your redis server.
+		Driver:    redis.Redigo(), // redis.Radix() can be used instead.
+	})
 
-	// close connection when control+C/cmd+C
+	// Optionally configure the underline driver:
+	// driver := redis.Redigo()
+	// driver.MaxIdle = ...
+	// driver.IdleTimeout = ...
+	// driver.Wait = ...
+	// redis.Config {Driver: driver}
+
+	// Close connection when control+C/cmd+C
 	iris.RegisterOnInterrupt(func() {
 		db.Close()
 	})
