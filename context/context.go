@@ -410,7 +410,7 @@ type Context interface {
 	URLParam(name string) string
 	// URLParamTrim returns the url query parameter with trailing white spaces removed from a request.
 	URLParamTrim(name string) string
-	// URLParamTrim returns the escaped url query parameter from a request.
+	// URLParamEscape returns the escaped url query parameter from a request.
 	URLParamEscape(name string) string
 	// URLParamInt returns the url query parameter as int value from a request,
 	// returns -1 and an error if parse failed.
@@ -779,13 +779,14 @@ type Context interface {
 	// JSON marshals the given interface object and writes the JSON response.
 	JSON(v interface{}, options ...JSON) (int, error)
 	// Problem writes a JSON problem response.
-	// Order of fields are not always the same.
+	// Order of Problem fields are not always rendered the same.
 	//
 	// Behaves exactly like `Context.JSON`
-	// but with indent of " " and a content type of "application/problem+json" instead.
+	// but with default ProblemOptions.JSON indent of " " and
+	// a response content type of "application/problem+json" instead.
 	//
 	// Read more at: https://github.com/kataras/iris/wiki/Routing-error-handlers
-	Problem(v interface{}, opts ...JSON) (int, error)
+	Problem(v interface{}, opts ...ProblemOptions) (int, error)
 	// JSONP marshals the given interface object and writes the JSON response.
 	JSONP(v interface{}, options ...JSONP) (int, error)
 	// XML marshals the given interface object and writes the XML response.
@@ -1906,7 +1907,7 @@ func (ctx *context) URLParamTrim(name string) string {
 	return strings.TrimSpace(ctx.URLParam(name))
 }
 
-// URLParamTrim returns the escaped url query parameter from a request.
+// URLParamEscape returns the escaped url query parameter from a request.
 func (ctx *context) URLParamEscape(name string) string {
 	return DecodeQuery(ctx.URLParam(name))
 }
@@ -3187,18 +3188,21 @@ func (ctx *context) JSON(v interface{}, opts ...JSON) (n int, err error) {
 }
 
 // Problem writes a JSON problem response.
-// Order of fields are not always the same.
+// Order of Problem fields are not always rendered the same.
 //
 // Behaves exactly like `Context.JSON`
-// but with indent of " " and a content type of "application/problem+json" instead.
+// but with default ProblemOptions.JSON indent of " " and
+// a response content type of "application/problem+json" instead.
 //
 // Read more at: https://github.com/kataras/iris/wiki/Routing-error-handlers
-func (ctx *context) Problem(v interface{}, opts ...JSON) (int, error) {
-	options := DefaultJSONOptions
+func (ctx *context) Problem(v interface{}, opts ...ProblemOptions) (int, error) {
+	options := DefaultProblemOptions
 	if len(opts) > 0 {
 		options = opts[0]
-	} else {
-		options.Indent = "  "
+		// Currently apply only if custom options passsed, otherwise,
+		// with the current settings, it's not required.
+		// This may change in the future though.
+		options.Apply(ctx)
 	}
 
 	if p, ok := v.(Problem); ok {
@@ -3209,7 +3213,7 @@ func (ctx *context) Problem(v interface{}, opts ...JSON) (int, error) {
 
 	ctx.contentTypeOnce(ContentJSONProblemHeaderValue, "")
 
-	return ctx.JSON(v, options)
+	return ctx.JSON(v, options.JSON)
 }
 
 var (
