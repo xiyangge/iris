@@ -21,6 +21,40 @@ Developers are not forced to upgrade if they don't really need it. Upgrade whene
 
 **How to upgrade**: Open your command-line and execute this command: `go get github.com/kataras/iris/v12@latest`.
 
+# Su, 16 February 2020 | v12.1.8
+
+New Features:
+
+-  [[FEATURE REQUEST] MVC serving gRPC-compatible controller](https://github.com/kataras/iris/issues/1449)
+
+Fixes:
+
+- [App can't find embedded pug template files by go-bindata](https://github.com/kataras/iris/issues/1450)
+
+New Examples:
+
+- [_examples/mvc/grpc-compatible](_examples/mvc/grpc-compatible)
+
+# Mo, 10 February 2020 | v12.1.7
+
+Implement **new** `SetRegisterRule(iris.RouteOverride, RouteSkip, RouteError)` to resolve: https://github.com/kataras/iris/issues/1448
+
+New Examples:
+
+- [_examples/Docker](_examples/Docker)
+- [_examples/routing/route-register-rule](_examples/routing/route-register-rule)
+
+# We, 05 February 2020 | v12.1.6
+
+Fixes:
+
+- [jet.View - urlpath error](https://github.com/kataras/iris/issues/1438)
+- [Context.ServeFile send 'application/wasm' with a wrong extra field](https://github.com/kataras/iris/issues/1440)
+
+# Su, 02 February 2020 | v12.1.5
+
+Various improvements and linting.
+
 # Su, 29 December 2019 | v12.1.4
 
 Minor fix on serving [embedded files](https://github.com/kataras/iris/wiki/File-server).

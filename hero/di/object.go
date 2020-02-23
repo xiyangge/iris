@@ -3,6 +3,8 @@ package di
 import (
 	"errors"
 	"reflect"
+
+	"github.com/kataras/iris/v12/context"
 )
 
 // BindType is the type of a binded object/value, it's being used to
@@ -35,7 +37,7 @@ type BindObject struct {
 	Value reflect.Value
 
 	BindType    BindType
-	ReturnValue func([]reflect.Value) reflect.Value
+	ReturnValue func(ctx context.Context) reflect.Value
 }
 
 // MakeBindObject accepts any "v" value, struct, pointer or a function
@@ -43,10 +45,10 @@ type BindObject struct {
 // or the input arguments (if "v.elem()" is func)
 // are valid to be included as the final object's dependencies, even if the caller added more
 // the "di" is smart enough to select what each "v" needs and what not before serve time.
-func MakeBindObject(v reflect.Value, goodFunc TypeChecker) (b BindObject, err error) {
+func MakeBindObject(v reflect.Value, errorHandler ErrorHandler) (b BindObject, err error) {
 	if IsFunc(v) {
 		b.BindType = Dynamic
-		b.ReturnValue, b.Type, err = MakeReturnValue(v, goodFunc)
+		b.ReturnValue, b.Type, err = MakeReturnValue(v, errorHandler)
 	} else {
 		b.BindType = Static
 		b.Type = v.Type()
@@ -54,6 +56,23 @@ func MakeBindObject(v reflect.Value, goodFunc TypeChecker) (b BindObject, err er
 	}
 
 	return
+}
+
+func tryBindContext(fieldOrFuncInput reflect.Type) (*BindObject, bool) {
+	if !IsContext(fieldOrFuncInput) {
+		return nil, false
+	}
+	// this is being used on both func injector and struct injector.
+	// if the func's input argument or the struct's field is a type of Context
+	// then we can do a fast binding using the ctxValue
+	// which is used as slice of reflect.Value, because of the final method's `Call`.
+	return &BindObject{
+		Type:     contextTyp,
+		BindType: Dynamic,
+		ReturnValue: func(ctx context.Context) reflect.Value {
+			return ctx.ReflectValue()[0]
+		},
+	}, true
 }
 
 var errBad = errors.New("bad")
@@ -67,9 +86,9 @@ var errBad = errors.New("bad")
 // The "fn" can have the following form:
 // `func(myService) MyViewModel`.
 //
-// The return type of the "fn" should be a value instance, not a pointer, for your own protection.
-// The binder function should return only one value.
-func MakeReturnValue(fn reflect.Value, goodFunc TypeChecker) (func([]reflect.Value) reflect.Value, reflect.Type, error) {
+// The return type of the "fn" should be a value instance, not a pointer.
+// The binder function should return just one value.
+func MakeReturnValue(fn reflect.Value, errorHandler ErrorHandler) (func(context.Context) reflect.Value, reflect.Type, error) {
 	typ := IndirectType(fn.Type())
 
 	// invalid if not a func.
@@ -84,47 +103,32 @@ func MakeReturnValue(fn reflect.Value, goodFunc TypeChecker) (func([]reflect.Val
 		return nil, typ, errBad
 	}
 
-	if goodFunc != nil {
-		if !goodFunc(typ) {
-			return nil, typ, errBad
-		}
+	if !goodFunc(typ) {
+		return nil, typ, errBad
 	}
 
 	firstOutTyp := typ.Out(0)
 	firstZeroOutVal := reflect.New(firstOutTyp).Elem()
 
-	bf := func(ctxValue []reflect.Value) reflect.Value {
-		results := fn.Call(ctxValue)
-
-		v := results[0]
-		if !v.IsValid() { // check the first value, second is error.
-			return firstZeroOutVal
-		}
-
+	bf := func(ctx context.Context) reflect.Value {
+		results := fn.Call(ctx.ReflectValue())
 		if n == 2 {
 			// two, second is always error.
 			errVal := results[1]
 			if !errVal.IsNil() {
-				// error is not nil, do something with it.
-				if ctx, ok := ctxValue[0].Interface().(interface {
-					StatusCode(int)
-					WriteString(string) (int, error)
-					StopExecution()
-				}); ok {
-					ctx.StatusCode(400)
-					ctx.WriteString(errVal.Interface().(error).Error())
-					ctx.StopExecution()
+				if errorHandler != nil {
+					errorHandler.HandleError(ctx, errVal.Interface().(error))
 				}
 
 				return firstZeroOutVal
 			}
 		}
 
-		// if v.String() == "<interface {} Value>" {
-		// 	println("di/object.go: " + v.String())
-		// 	// println("di/object.go: because it's interface{} it should be returned as: " + v.Elem().Type().String() + " and its value: " + v.Elem().Interface().(string))
-		// 	return v.Elem()
-		// }
+		v := results[0]
+		if !v.IsValid() { // check the first value, second is error.
+			return firstZeroOutVal
+		}
+
 		return v
 	}
 
@@ -138,7 +142,7 @@ func (b *BindObject) IsAssignable(to reflect.Type) bool {
 
 // Assign sets the values to a setter, "toSetter" contains the setter, so the caller
 // can use it for multiple and different structs/functions as well.
-func (b *BindObject) Assign(ctx []reflect.Value, toSetter func(reflect.Value)) {
+func (b *BindObject) Assign(ctx context.Context, toSetter func(reflect.Value)) {
 	if b.BindType == Dynamic {
 		toSetter(b.ReturnValue(ctx))
 		return

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -355,6 +356,8 @@ type Context interface {
 	//
 	// Keep note that this checks the "User-Agent" request header.
 	IsMobile() bool
+	// IsScript reports whether a client is a script.
+	IsScript() bool
 	// GetReferrer extracts and returns the information from the "Referer" header as specified
 	// in https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy
 	// or by the URL query parameter "referer".
@@ -496,17 +499,17 @@ type Context interface {
 	//
 	// If not found or parse errors returns the "def".
 	PostValueInt64Default(name string, def int64) int64
-	// PostValueInt64Default returns the parsed form data from POST, PATCH,
+	// PostValueFloat64 returns the parsed form data from POST, PATCH,
 	// or PUT body parameters based on a "name", as float64.
 	//
 	// If not found returns -1 and a non-nil error.
 	PostValueFloat64(name string) (float64, error)
-	// PostValueInt64Default returns the parsed form data from POST, PATCH,
+	// PostValueFloat64Default returns the parsed form data from POST, PATCH,
 	// or PUT body parameters based on a "name", as float64.
 	//
 	// If not found or parse errors returns the "def".
 	PostValueFloat64Default(name string, def float64) float64
-	// PostValueInt64Default returns the parsed form data from POST, PATCH,
+	// PostValueBool returns the parsed form data from POST, PATCH,
 	// or PUT body parameters based on a "name", as bool.
 	//
 	// If not found or value is false, then it returns false, otherwise true.
@@ -991,6 +994,10 @@ type Context interface {
 	// RouteExists reports whether a particular route exists
 	// It will search from the current subdomain of context's host, if not inside the root domain.
 	RouteExists(method, path string) bool
+
+	// ReflectValue caches and returns a []reflect.Value{reflect.ValueOf(ctx)}.
+	// It's just a helper to maintain variable inside the context itself.
+	ReflectValue() []reflect.Value
 
 	// Application returns the iris app instance which belongs to this context.
 	// Worth to notice that this function returns an interface
@@ -1700,7 +1707,7 @@ func (ctx *context) IsAjax() bool {
 	return ctx.GetHeader("X-Requested-With") == "XMLHttpRequest"
 }
 
-var isMobileRegex = regexp.MustCompile(`(?i)(android|avantgo|blackberry|bolt|boost|cricket|docomo|fone|hiptop|mini|mobi|palm|phone|pie|tablet|up\.browser|up\.link|webos|wos)`)
+var isMobileRegex = regexp.MustCompile("(?:hpw|i|web)os|alamofire|alcatel|amoi|android|avantgo|blackberry|blazer|cell|cfnetwork|darwin|dolfin|dolphin|fennec|htc|ip(?:hone|od|ad)|ipaq|j2me|kindle|midp|minimo|mobi|motorola|nec-|netfront|nokia|opera m(ob|in)i|palm|phone|pocket|portable|psp|silk-accelerated|skyfire|sony|ucbrowser|up.browser|up.link|windows ce|xda|zte|zune")
 
 // IsMobile checks if client is using a mobile device(phone or tablet) to communicate with this server.
 // If the return value is true that means that the http client using a mobile
@@ -1708,8 +1715,16 @@ var isMobileRegex = regexp.MustCompile(`(?i)(android|avantgo|blackberry|bolt|boo
 //
 // Keep note that this checks the "User-Agent" request header.
 func (ctx *context) IsMobile() bool {
-	s := ctx.GetHeader("User-Agent")
+	s := strings.ToLower(ctx.GetHeader("User-Agent"))
 	return isMobileRegex.MatchString(s)
+}
+
+var isScriptRegex = regexp.MustCompile("curl|wget|collectd|python|urllib|java|jakarta|httpclient|phpcrawl|libwww|perl|go-http|okhttp|lua-resty|winhttp|awesomium")
+
+// IsScript reports whether a client is a script.
+func (ctx *context) IsScript() bool {
+	s := strings.ToLower(ctx.GetHeader("User-Agent"))
+	return isScriptRegex.MatchString(s)
 }
 
 type (
@@ -1828,12 +1843,16 @@ func (ctx *context) Header(name string, value string) {
 
 const contentTypeContextKey = "_iris_content_type"
 
+func shouldAppendCharset(cType string) bool {
+	return cType != ContentBinaryHeaderValue && cType != ContentWebassemblyHeaderValue
+}
+
 func (ctx *context) contentTypeOnce(cType string, charset string) {
 	if charset == "" {
 		charset = ctx.Application().ConfigurationReadOnly().GetCharset()
 	}
 
-	if cType != ContentBinaryHeaderValue {
+	if shouldAppendCharset(cType) {
 		cType += "; charset=" + charset
 	}
 
@@ -1859,7 +1878,7 @@ func (ctx *context) ContentType(cType string) {
 	}
 	// if doesn't contain a charset already then append it
 	if !strings.Contains(cType, "charset") {
-		if cType != ContentBinaryHeaderValue {
+		if shouldAppendCharset(cType) {
 			cType += "; charset=" + ctx.Application().ConfigurationReadOnly().GetCharset()
 		}
 	}
@@ -2271,7 +2290,7 @@ func (ctx *context) PostValueInt64Default(name string, def int64) int64 {
 	return def
 }
 
-// PostValueInt64Default returns the parsed form data from POST, PATCH,
+// PostValueFloat64 returns the parsed form data from POST, PATCH,
 // or PUT body parameters based on a "name", as float64.
 //
 // If not found returns -1 and a non-nil error.
@@ -2283,7 +2302,7 @@ func (ctx *context) PostValueFloat64(name string) (float64, error) {
 	return strconv.ParseFloat(v, 64)
 }
 
-// PostValueInt64Default returns the parsed form data from POST, PATCH,
+// PostValueFloat64Default returns the parsed form data from POST, PATCH,
 // or PUT body parameters based on a "name", as float64.
 //
 // If not found or parse errors returns the "def".
@@ -2295,7 +2314,7 @@ func (ctx *context) PostValueFloat64Default(name string, def float64) float64 {
 	return def
 }
 
-// PostValueInt64Default returns the parsed form data from POST, PATCH,
+// PostValueBool returns the parsed form data from POST, PATCH,
 // or PUT body parameters based on a "name", as bool.
 //
 // If not found or value is false, then it returns false, otherwise true.
@@ -3068,6 +3087,8 @@ func (ctx *context) View(filename string, optionalViewModel ...interface{}) erro
 const (
 	// ContentBinaryHeaderValue header value for binary data.
 	ContentBinaryHeaderValue = "application/octet-stream"
+	// ContentWebassemblyHeaderValue header value for web assembly files.
+	ContentWebassemblyHeaderValue = "application/wasm"
 	// ContentHTMLHeaderValue is the  string of text/html response header's content type value.
 	ContentHTMLHeaderValue = "text/html"
 	// ContentJSONHeaderValue header value for JSON data.
@@ -3252,7 +3273,10 @@ var finishCallbackB = []byte(");")
 // WriteJSONP marshals the given interface object and writes the JSON response to the writer.
 func WriteJSONP(writer io.Writer, v interface{}, options JSONP, enableOptimization ...bool) (int, error) {
 	if callback := options.Callback; callback != "" {
-		writer.Write([]byte(callback + "("))
+		n, err := writer.Write([]byte(callback + "("))
+		if err != nil {
+			return n, err
+		}
 		defer writer.Write(finishCallbackB)
 	}
 
@@ -3342,7 +3366,10 @@ func (m xmlMap) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	}
 
 	for k, v := range m.entries {
-		e.Encode(xmlMapEntry{XMLName: xml.Name{Local: k}, Value: v})
+		err = e.Encode(xmlMapEntry{XMLName: xml.Name{Local: k}, Value: v})
+		if err != nil {
+			return err
+		}
 	}
 
 	return e.EncodeToken(start.End())
@@ -3351,7 +3378,10 @@ func (m xmlMap) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 // WriteXML marshals the given interface object and writes the XML response to the writer.
 func WriteXML(writer io.Writer, v interface{}, options XML) (int, error) {
 	if prefix := options.Prefix; prefix != "" {
-		writer.Write([]byte(prefix))
+		n, err := writer.Write([]byte(prefix))
+		if err != nil {
+			return n, err
+		}
 	}
 
 	if indent := options.Indent; indent != "" {
@@ -4581,6 +4611,22 @@ func (ctx *context) Exec(method string, path string) {
 // It will search from the current subdomain of context's host, if not inside the root domain.
 func (ctx *context) RouteExists(method, path string) bool {
 	return ctx.Application().RouteExists(ctx, method, path)
+}
+
+const (
+	reflectValueContextKey = "_iris_context_reflect_value"
+)
+
+// ReflectValue caches and returns a []reflect.Value{reflect.ValueOf(ctx)}.
+// It's just a helper to maintain variable inside the context itself.
+func (ctx *context) ReflectValue() []reflect.Value {
+	if v := ctx.Values().Get(reflectValueContextKey); v != nil {
+		return v.([]reflect.Value)
+	}
+
+	v := []reflect.Value{reflect.ValueOf(ctx)}
+	ctx.Values().Set(reflectValueContextKey, v)
+	return v
 }
 
 // Application returns the iris app instance which belongs to this context.

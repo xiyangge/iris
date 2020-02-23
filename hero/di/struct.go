@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+
+	"github.com/kataras/iris/v12/context"
 )
 
 // Scope is the struct injector's struct value scope/permant state.
@@ -59,6 +61,9 @@ type (
 		Has       bool
 		CanInject bool // if any bindable fields when the state is NOT singleton.
 		Scope     Scope
+
+		FallbackBinder FallbackBinder
+		ErrorHandler   ErrorHandler
 	}
 )
 
@@ -101,11 +106,13 @@ var SortByNumMethods Sorter = func(t1 reflect.Type, t2 reflect.Type) bool {
 // of the "v" struct value or pointer.
 //
 // The hijack and the goodFunc are optional, the "values" is the dependencies collection.
-func MakeStructInjector(v reflect.Value, hijack Hijacker, goodFunc TypeChecker, sorter Sorter, values ...reflect.Value) *StructInjector {
+func MakeStructInjector(v reflect.Value, sorter Sorter, values ...reflect.Value) *StructInjector {
 	s := &StructInjector{
 		initRef:        v,
 		initRefAsSlice: []reflect.Value{v},
 		elemType:       IndirectType(v.Type()),
+		FallbackBinder: DefaultFallbackBinder,
+		ErrorHandler:   DefaultErrorHandler,
 	}
 
 	// Optionally check and keep good values only here,
@@ -121,7 +128,7 @@ func MakeStructInjector(v reflect.Value, hijack Hijacker, goodFunc TypeChecker, 
 	// 	}
 	// }
 
-	visited := make(map[int]struct{}, 0) // add a visited to not add twice a single value (09-Jul-2019).
+	visited := make(map[int]struct{}) // add a visited to not add twice a single value (09-Jul-2019).
 	fields := lookupFields(s.elemType, true, nil)
 
 	// for idx, val := range values {
@@ -136,15 +143,12 @@ func MakeStructInjector(v reflect.Value, hijack Hijacker, goodFunc TypeChecker, 
 
 	for _, f := range fields {
 		// fmt.Printf("[%d] field type [%s] value name [%s]\n", idx, f.Type.String(), f.Name)
-		if hijack != nil {
-			if b, ok := hijack(f.Type); ok && b != nil {
-				s.fields = append(s.fields, &targetStructField{
-					FieldIndex: f.Index,
-					Object:     b,
-				})
-
-				continue
-			}
+		if b, ok := tryBindContext(f.Type); ok {
+			s.fields = append(s.fields, &targetStructField{
+				FieldIndex: f.Index,
+				Object:     b,
+			})
+			continue
 		}
 
 		var possibleValues []*targetStructField
@@ -155,9 +159,10 @@ func MakeStructInjector(v reflect.Value, hijack Hijacker, goodFunc TypeChecker, 
 			}
 
 			// the binded values to the struct's fields.
-			b, err := MakeBindObject(val, goodFunc)
+			b, err := MakeBindObject(val, nil)
 			if err != nil {
-				return s // if error stop here.
+				panic(err)
+				// return s // if error stop here.
 			}
 
 			if b.IsAssignable(f.Type) {
@@ -286,21 +291,26 @@ func (s *StructInjector) String() (trace string) {
 }
 
 // Inject accepts a destination struct and any optional context value(s),
-// hero and mvc takes only one context value and this is the `context.Contex`.
+// hero and mvc takes only one context value and this is the `context.Context`.
 // It applies the bindings to the "dest" struct. It calls the InjectElem.
-func (s *StructInjector) Inject(dest interface{}, ctx ...reflect.Value) {
+func (s *StructInjector) Inject(ctx context.Context, dest interface{}) {
 	if dest == nil {
 		return
 	}
 
 	v := IndirectValue(ValueOf(dest))
-	s.InjectElem(v, ctx...)
+	s.InjectElem(ctx, v)
 }
 
 // InjectElem same as `Inject` but accepts a reflect.Value and bind the necessary fields directly.
-func (s *StructInjector) InjectElem(destElem reflect.Value, ctx ...reflect.Value) {
+func (s *StructInjector) InjectElem(ctx context.Context, destElem reflect.Value) {
 	for _, f := range s.fields {
 		f.Object.Assign(ctx, func(v reflect.Value) {
+			ff := destElem.FieldByIndex(f.FieldIndex)
+			if !v.Type().AssignableTo(ff.Type()) {
+				return
+			}
+
 			destElem.FieldByIndex(f.FieldIndex).Set(v)
 		})
 	}

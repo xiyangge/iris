@@ -11,23 +11,17 @@ import (
 	"github.com/kataras/golog"
 )
 
-var contextTyp = reflect.TypeOf((*context.Context)(nil)).Elem()
+// var genericFuncTyp = reflect.TypeOf(func(context.Context) reflect.Value { return reflect.Value{} })
 
-// IsContext returns true if the "inTyp" is a type of Context.
-func IsContext(inTyp reflect.Type) bool {
-	return inTyp.Implements(contextTyp)
-}
+// // IsGenericFunc reports whether the "inTyp" is a type of func(Context) interface{}.
+// func IsGenericFunc(inTyp reflect.Type) bool {
+// 	return inTyp == genericFuncTyp
+// }
 
 // checks if "handler" is context.Handler: func(context.Context).
 func isContextHandler(handler interface{}) (context.Handler, bool) {
-	h, is := handler.(context.Handler)
-	if !is {
-		fh, is := handler.(func(context.Context))
-		if is {
-			return fh, is
-		}
-	}
-	return h, is
+	h, ok := handler.(context.Handler)
+	return h, ok
 }
 
 func validateHandler(handler interface{}) error {
@@ -42,7 +36,7 @@ func validateHandler(handler interface{}) error {
 // custom structs, Result(View | Response) and anything that you can imagine,
 // and returns a low-level `context/iris.Handler` which can be used anywhere in the Iris Application,
 // as middleware or as simple route handler or party handler or subdomain handler-router.
-func makeHandler(handler interface{}, values ...reflect.Value) (context.Handler, error) {
+func makeHandler(handler interface{}, errorHandler di.ErrorHandler, values ...reflect.Value) (context.Handler, error) {
 	if err := validateHandler(handler); err != nil {
 		return nil, err
 	}
@@ -64,6 +58,8 @@ func makeHandler(handler interface{}, values ...reflect.Value) (context.Handler,
 	}
 
 	funcInjector := di.Func(fn, values...)
+	funcInjector.ErrorHandler = errorHandler
+
 	valid := funcInjector.Length == n
 
 	if !valid {
@@ -73,7 +69,8 @@ func makeHandler(handler interface{}, values ...reflect.Value) (context.Handler,
 		// using binders for path parameters: string, int, int64, uint8, uint64, bool and so on.
 		// We don't have access to the path, so neither to the macros here,
 		// but in mvc. So we have to do it here.
-		if valid = funcInjector.Retry(new(params).resolve); !valid {
+		valid = funcInjector.Retry(new(params).resolve)
+		if !valid {
 			pc := fn.Pointer()
 			fpc := runtime.FuncForPC(pc)
 			callerFileName, callerLineNumber := fpc.FileLine(pc)
@@ -89,7 +86,7 @@ func makeHandler(handler interface{}, values ...reflect.Value) (context.Handler,
 		// in := make([]reflect.Value, n, n)
 		// funcInjector.Inject(&in, reflect.ValueOf(ctx))
 		// DispatchFuncResult(ctx, fn.Call(in))
-		DispatchFuncResult(ctx, nil, funcInjector.Call(reflect.ValueOf(ctx)))
+		DispatchFuncResult(ctx, nil, funcInjector.Call(ctx))
 	}
 
 	return h, nil

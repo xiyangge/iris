@@ -48,13 +48,14 @@ type Application struct {
 	Router               router.Party
 	Controllers          []*ControllerActivator
 	websocketControllers []websocket.ConnHandler
-	ErrorHandler         hero.ErrorHandler
+	ErrorHandler         di.ErrorHandler
 }
 
 func newApp(subRouter router.Party, values di.Values) *Application {
 	return &Application{
 		Router:       subRouter,
 		Dependencies: values,
+		ErrorHandler: di.DefaultErrorHandler,
 	}
 }
 
@@ -102,6 +103,12 @@ func (app *Application) Configure(configurators ...func(*Application)) *Applicat
 	}
 	return app
 }
+
+// AutoBinding used to be registered as dependency to try to automatically
+// map and bind the inputs that are not already binded with a dependency.
+//
+// A shortcut of `hero.AutoBinding`. Read more at: `hero#DefaultFallbackBinder`.
+var AutoBinding = hero.AutoBinding
 
 // Register appends one or more values as dependencies.
 // The value can be a single struct value-instance or a function
@@ -211,7 +218,7 @@ func makeInjector(injector *di.StructInjector) websocket.StructInjector {
 	return func(_ reflect.Type, nsConn *websocket.NSConn) reflect.Value {
 		v := injector.Acquire()
 		if injector.CanInject {
-			injector.InjectElem(v.Elem(), reflect.ValueOf(websocket.GetContext(nsConn.Conn)))
+			injector.InjectElem(websocket.GetContext(nsConn.Conn), v.Elem())
 		}
 		return v
 	}
@@ -258,8 +265,8 @@ func (app *Application) handle(controller interface{}) *ControllerActivator {
 // HandleError registers a `hero.ErrorHandlerFunc` which will be fired when
 // application's controllers' functions returns an non-nil error.
 // Each controller can override it by implementing the `hero.ErrorHandler`.
-func (app *Application) HandleError(errHandler hero.ErrorHandlerFunc) *Application {
-	app.ErrorHandler = errHandler
+func (app *Application) HandleError(errorHandler func(ctx context.Context, err error)) *Application {
+	app.ErrorHandler = di.ErrorHandlerFunc(errorHandler)
 	return app
 }
 

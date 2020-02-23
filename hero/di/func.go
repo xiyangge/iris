@@ -3,6 +3,8 @@ package di
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/kataras/iris/v12/context"
 )
 
 type (
@@ -16,9 +18,10 @@ type (
 	FuncInjector struct {
 		// the original function, is being used
 		// only the .Call, which is referring to the same function, always.
-		fn       reflect.Value
-		typ      reflect.Type
-		goodFunc TypeChecker
+		fn             reflect.Value
+		typ            reflect.Type
+		FallbackBinder FallbackBinder
+		ErrorHandler   ErrorHandler
 
 		inputs []*targetFuncInput
 		// Length is the number of the valid, final binded input arguments.
@@ -27,20 +30,20 @@ type (
 		// performance reasons.
 		Has bool
 
-		trace string // for debug info.
-
 		lost []*missingInput // Author's note: don't change this to a map.
 	}
 )
 
 type missingInput struct {
-	index int // the function's input argument's index.
-	found bool
+	index     int // the function's input argument's index.
+	found     bool
+	remaining Values
 }
 
-func (s *FuncInjector) miss(index int) {
+func (s *FuncInjector) miss(index int, remaining Values) {
 	s.lost = append(s.lost, &missingInput{
-		index: index,
+		index:     index,
+		remaining: remaining,
 	})
 }
 
@@ -48,12 +51,13 @@ func (s *FuncInjector) miss(index int) {
 // that the caller should use to bind input arguments of the "fn" function.
 //
 // The hijack and the goodFunc are optional, the "values" is the dependencies collection.
-func MakeFuncInjector(fn reflect.Value, hijack Hijacker, goodFunc TypeChecker, values ...reflect.Value) *FuncInjector {
+func MakeFuncInjector(fn reflect.Value, values ...reflect.Value) *FuncInjector {
 	typ := IndirectType(fn.Type())
 	s := &FuncInjector{
-		fn:       fn,
-		typ:      typ,
-		goodFunc: goodFunc,
+		fn:             fn,
+		typ:            typ,
+		FallbackBinder: DefaultFallbackBinder,
+		ErrorHandler:   DefaultErrorHandler,
 	}
 
 	if !IsFunc(typ) {
@@ -67,16 +71,12 @@ func MakeFuncInjector(fn reflect.Value, hijack Hijacker, goodFunc TypeChecker, v
 	for i := 0; i < n; i++ {
 		inTyp := typ.In(i)
 
-		if hijack != nil {
-			b, ok := hijack(inTyp)
-
-			if ok && b != nil {
-				s.inputs = append(s.inputs, &targetFuncInput{
-					InputIndex: i,
-					Object:     b,
-				})
-				continue
-			}
+		if b, ok := tryBindContext(inTyp); ok {
+			s.inputs = append(s.inputs, &targetFuncInput{
+				InputIndex: i,
+				Object:     b,
+			})
+			continue
 		}
 
 		matched := false
@@ -94,6 +94,50 @@ func MakeFuncInjector(fn reflect.Value, hijack Hijacker, goodFunc TypeChecker, v
 
 				break
 			}
+
+			// TODO: (already working on it) clean up or even re-write the whole di, hero and some of the mvc,
+			// this is a dirty but working-solution for #1449.
+			// Limitations:
+			// - last input argument
+			// - not able to customize it other than DefaultFallbackBinder on MVC (on hero it can be customized)
+			// - the "di" package is now depends on context package which is not an import-cycle issue, it's not imported there.
+			if i == n-1 {
+				if v.Type() == autoBindingTyp && s.FallbackBinder != nil {
+
+					canFallback := true
+					if k := inTyp.Kind(); k == reflect.Ptr {
+						if inTyp.Elem().Kind() != reflect.Struct {
+							canFallback = false
+						}
+					} else if k != reflect.Struct {
+						canFallback = false
+					}
+
+					if canFallback {
+						matched = true
+
+						s.inputs = append(s.inputs, &targetFuncInput{
+							InputIndex: i,
+							Object: &BindObject{
+								Type:     inTyp,
+								BindType: Dynamic,
+								ReturnValue: func(ctx context.Context) reflect.Value {
+									value, err := s.FallbackBinder(ctx, OrphanInput{Type: inTyp})
+									if err != nil {
+										if s.ErrorHandler != nil {
+											s.ErrorHandler.HandleError(ctx, err)
+										}
+									}
+
+									return value
+								},
+							},
+						})
+
+						break
+					}
+				}
+			}
 		}
 
 		if !matched {
@@ -102,9 +146,8 @@ func MakeFuncInjector(fn reflect.Value, hijack Hijacker, goodFunc TypeChecker, v
 			// but before this let's make a list of failed
 			// inputs, so they can be used for a re-try
 			// with different set of binding "values".
-			s.miss(i)
+			s.miss(i, values) // send the remaining dependencies values.
 		}
-
 	}
 
 	return s
@@ -114,6 +157,11 @@ func (s *FuncInjector) refresh() {
 	s.Length = len(s.inputs)
 	s.Has = s.Length > 0
 }
+
+// AutoBindingValue a fake type to expliclty set the return value of hero.AutoBinding.
+type AutoBindingValue struct{}
+
+var autoBindingTyp = reflect.TypeOf(AutoBindingValue{})
 
 func (s *FuncInjector) addValue(inputIndex int, value reflect.Value) bool {
 	defer s.refresh()
@@ -125,14 +173,14 @@ func (s *FuncInjector) addValue(inputIndex int, value reflect.Value) bool {
 	inTyp := s.typ.In(inputIndex)
 
 	// the binded values to the func's inputs.
-	b, err := MakeBindObject(value, s.goodFunc)
+	b, err := MakeBindObject(value, s.ErrorHandler)
 	if err != nil {
 		return false
 	}
 
 	if b.IsAssignable(inTyp) {
-		// fmt.Printf("binded input index: %d for type: %s and value: %v with pointer: %v\n",
-		// 	i, b.Type.String(), inTyp.String(), inTyp.Pointer())
+		// fmt.Printf("binded input index: %d for type: %s and value: %v with dependency: %v\n",
+		// 	inputIndex, b.Type.String(), inTyp.String(), b)
 		s.inputs = append(s.inputs, &targetFuncInput{
 			InputIndex: inputIndex,
 			Object:     &b,
@@ -145,7 +193,7 @@ func (s *FuncInjector) addValue(inputIndex int, value reflect.Value) bool {
 
 // Retry used to add missing dependencies, i.e path parameter builtin bindings if not already exists
 // in the `hero.Handler`, once, only for that func injector.
-func (s *FuncInjector) Retry(retryFn func(inIndex int, inTyp reflect.Type) (reflect.Value, bool)) bool {
+func (s *FuncInjector) Retry(retryFn func(inIndex int, inTyp reflect.Type, remainingValues Values) (reflect.Value, bool)) bool {
 	for _, missing := range s.lost {
 		if missing.found {
 			continue
@@ -154,7 +202,7 @@ func (s *FuncInjector) Retry(retryFn func(inIndex int, inTyp reflect.Type) (refl
 		invalidIndex := missing.index
 
 		inTyp := s.typ.In(invalidIndex)
-		v, ok := retryFn(invalidIndex, inTyp)
+		v, ok := retryFn(invalidIndex, inTyp, missing.remaining)
 		if !ok {
 			continue
 		}
@@ -188,12 +236,13 @@ func (s *FuncInjector) String() (trace string) {
 // Inject accepts an already created slice of input arguments
 // and fills them, the "ctx" is optional and it's used
 // on the dependencies that depends on one or more input arguments, these are the "ctx".
-func (s *FuncInjector) Inject(in *[]reflect.Value, ctx ...reflect.Value) {
+func (s *FuncInjector) Inject(ctx context.Context, in *[]reflect.Value) {
 	args := *in
 	for _, input := range s.inputs {
 		input.Object.Assign(ctx, func(v reflect.Value) {
 			// fmt.Printf("assign input index: %d for value: %v of type: %s\n",
 			// 	input.InputIndex, v.String(), v.Type().Name())
+
 			args[input.InputIndex] = v
 		})
 	}
@@ -207,8 +256,8 @@ func (s *FuncInjector) Inject(in *[]reflect.Value, ctx ...reflect.Value) {
 // If the function needs a receiver, so
 // the caller should be able to in[0] = receiver before injection,
 // then the `Inject` method should be used instead.
-func (s *FuncInjector) Call(ctx ...reflect.Value) []reflect.Value {
-	in := make([]reflect.Value, s.Length, s.Length)
-	s.Inject(&in, ctx...)
+func (s *FuncInjector) Call(ctx context.Context) []reflect.Value {
+	in := make([]reflect.Value, s.Length)
+	s.Inject(ctx, &in)
 	return s.fn.Call(in)
 }

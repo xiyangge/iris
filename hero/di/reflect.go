@@ -2,6 +2,8 @@ package di
 
 import (
 	"reflect"
+
+	"github.com/kataras/iris/v12/context"
 )
 
 // EmptyIn is just an empty slice of reflect.Value.
@@ -131,6 +133,19 @@ func goodVal(v reflect.Value) bool {
 	return v.IsValid()
 }
 
+var contextTyp = reflect.TypeOf((*context.Context)(nil)).Elem()
+
+// IsContext returns true if the "inTyp" is a type of Context.
+func IsContext(inTyp reflect.Type) bool {
+	return inTyp.Implements(contextTyp)
+}
+
+func goodFunc(fn reflect.Type) bool {
+	// valid if that single input arg is a typeof context.Context
+	// or first argument is context.Context and second argument is a variadic, which is ignored (i.e new sessions#Start).
+	return (fn.NumIn() == 1 || (fn.NumIn() == 2 && fn.IsVariadic())) && IsContext(fn.In(0))
+}
+
 // IsFunc returns true if the passed type is function.
 func IsFunc(kindable interface {
 	Kind() reflect.Kind
@@ -138,20 +153,22 @@ func IsFunc(kindable interface {
 	return kindable.Kind() == reflect.Func
 }
 
+var reflectValueType = reflect.TypeOf(reflect.Value{})
+
 func equalTypes(got reflect.Type, expected reflect.Type) bool {
 	if got == expected {
 		return true
 	}
+
+	// fmt.Printf("got: %s expected: %s\n", got.String(), expected.String())
 	// if accepts an interface, check if the given "got" type does
 	// implement this "expected" user handler's input argument.
 	if expected.Kind() == reflect.Interface {
 		// fmt.Printf("expected interface = %s and got to set on the arg is: %s\n", expected.String(), got.String())
-		return got.Implements(expected)
+		// return got.Implements(expected)
+		// return expected.AssignableTo(got)
+		return got.AssignableTo(expected)
 	}
-
-	// if got.String() == "interface {}"  {
-	// 	return true
-	// }
 
 	return false
 }

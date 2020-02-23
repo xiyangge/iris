@@ -14,8 +14,8 @@ import (
 
 // dynamic func
 type testUserStruct struct {
-	ID       int64
-	Username string
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
 }
 
 func testBinderFunc(ctx iris.Context) testUserStruct {
@@ -125,4 +125,25 @@ func TestBindFunctionAsFunctionInputArgument(t *testing.T) {
 	expectedUsername := "kataras"
 	e.POST("/").WithFormField("username", expectedUsername).
 		Expect().Status(iris.StatusOK).Body().Equal(expectedUsername)
+}
+
+func TestAutoBinding(t *testing.T) {
+	h := New()
+	h.Register(AutoBinding)
+
+	postHandler := h.Handler(func(input *testUserStruct /* ptr */) string {
+		return input.Username
+	})
+
+	postHandler2 := h.Handler(func(input testUserStruct) string {
+		return input.Username
+	})
+
+	app := iris.New()
+	app.Post("/", postHandler)
+	app.Post("/2", postHandler2)
+
+	e := httptest.New(t, app)
+	e.POST("/").WithJSON(iris.Map{"username": "makis"}).Expect().Status(httptest.StatusOK).Body().Equal("makis")
+	e.POST("/2").WithJSON(iris.Map{"username": "kataras"}).Expect().Status(httptest.StatusOK).Body().Equal("kataras")
 }

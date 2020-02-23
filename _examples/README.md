@@ -33,7 +33,8 @@ $ go run main.go
 ### Overview
 
 - [Hello world!](hello-world/main.go)
-- [Hello WebAssemply!](webassembly/basic/main.go)
+- [Docker](docker/README.md)
+- [Hello WebAssembly!](webassembly/basic/main.go)
 - [Glimpse](overview/main.go)
 - [Tutorial: Online Visitors](tutorial/online-visitors/main.go)
 - [Tutorial: A Todo MVC Application using Iris and Vue.js](https://hackernoon.com/a-todo-mvc-application-using-iris-and-vue-js-5019ff870064)
@@ -142,6 +143,7 @@ Navigate through examples for a better understanding.
 - [Writing a middleware](routing/writing-a-middleware)
     * [per-route](routing/writing-a-middleware/per-route/main.go)
     * [globally](routing/writing-a-middleware/globally/main.go)
+- [Route Register Rule](routing/route-register-rule/main.go) **NEW**
 
 ### Versioning
 
@@ -166,6 +168,7 @@ Navigate through examples for a better understanding.
 - [Websocket Controller](mvc/websocket)
 - [Register Middleware](mvc/middleware)
 - [Vue.js Todo MVC](tutorial/vuejs-todo-mvc)
+- [gRPC-compatible controller](mvc/grpc-compatible/main.go) **NEW**
 
 ### Subdomains
 
@@ -198,6 +201,8 @@ Navigate through examples for a better understanding.
 - [Pug (Jade) Extends`](view/template_pug_3)
 - [Jet](/view/template_jet_0)
 - [Jet Embedded](view/template_jet_1_embedded)
+- [Jet 'urlpath' tmpl func](/view/template_jet_2)
+- [Jet template funcs from structure](/view/template_jet_3)
 
 You can serve [quicktemplate](https://github.com/valyala/quicktemplate) and [hero templates](https://github.com/shiyanhui/hero/hero) files too, simply by using the `context#ResponseWriter`, take a look at the [http_responsewriter/quicktemplate](http_responsewriter/quicktemplate) and [http_responsewriter/herotemplate](http_responsewriter/herotemplate) examples.
 

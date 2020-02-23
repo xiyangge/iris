@@ -20,23 +20,6 @@ type Result interface {
 	Dispatch(ctx context.Context)
 }
 
-type (
-	// ErrorHandler is the optional interface to handle errors per hero func,
-	// see `mvc/Application#HandleError` for MVC application-level error handler registration too.
-	ErrorHandler interface {
-		HandleError(ctx context.Context, err error)
-	}
-
-	// ErrorHandlerFunc implements the `ErrorHandler`.
-	// It describes the type defnition for an error handler.
-	ErrorHandlerFunc func(ctx context.Context, err error)
-)
-
-// HandleError fires when the `DispatchFuncResult` returns a non-nil error.
-func (fn ErrorHandlerFunc) HandleError(ctx context.Context, err error) {
-	fn(ctx, err)
-}
-
 var defaultFailureResponse = Response{Code: DefaultErrStatusCode}
 
 // Try will check if "fn" ran without any panics,
@@ -180,7 +163,7 @@ func DispatchCommon(ctx context.Context,
 // Result or (Result, error) and so on...
 //
 // where Get is an HTTP METHOD.
-func DispatchFuncResult(ctx context.Context, errorHandler ErrorHandler, values []reflect.Value) {
+func DispatchFuncResult(ctx context.Context, errorHandler di.ErrorHandler, values []reflect.Value) {
 	if len(values) == 0 {
 		return
 	}
@@ -314,14 +297,14 @@ func DispatchFuncResult(ctx context.Context, errorHandler ErrorHandler, values [
 
 			if errorHandler != nil {
 				errorHandler.HandleError(ctx, value)
-				break
+				return
 			}
 
 			err = value
 			if statusCode < 400 {
 				statusCode = DefaultErrStatusCode
 			}
-			break // break on first error, error should be in the end but we
+			// break on first error, error should be in the end but we
 			// need to know break the dispatcher if any error.
 			// at the end; we don't want to write anything to the response if error is not nil.
 
@@ -426,7 +409,7 @@ func (r Response) Dispatch(ctx context.Context) {
 // wraps the template file name, layout, (any) view data, status code and error.
 // It's smart enough to complete the request and send the correct response to the client.
 //
-// Example at: https://github.com/kataras/iris/blob/master/_examples/hero/overview/web/controllers/hello_controller.go.
+// Example at: https://github.com/kataras/iris/blob/master/_examples/hero/overview/web/routes/hello.go.
 type View struct {
 	Name   string
 	Layout string
@@ -505,7 +488,7 @@ func (r View) Dispatch(ctx context.Context) { // r as Response view.
 			}
 		}
 
-		ctx.View(r.Name)
+		_ = ctx.View(r.Name)
 	}
 }
 
